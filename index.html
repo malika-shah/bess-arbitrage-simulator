@@ -7,27 +7,34 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8">
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 font-sans">
 
+  <!-- Application Header -->
   <header class="max-w-7xl mx-auto mb-6 border-b border-slate-800 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
     <div>
-      <h1 class="text-2xl md:text-3xl font-extrabold text-amber-400">⚡ BESS Wholesale Price Arbitrage Simulator</h1>
-      <p class="text-xs md:text-sm text-slate-400">Client-Side Battery Storage Optimization & Dispatch Dashboard</p>
+      <h1 class="text-2xl md:text-3xl font-extrabold text-amber-400 tracking-tight">⚡ BESS Wholesale Arbitrage Simulator</h1>
+      <p class="text-xs md:text-sm text-slate-400 mt-1">Utility-Scale Battery Storage Optimization & Financial Valuation Engine</p>
     </div>
-    <div class="flex gap-2">
-      <span class="bg-slate-800 text-cyan-400 text-xs px-3 py-1.5 rounded-full border border-slate-700 font-mono">100% Client-Side JS Engine</span>
+    
+    <!-- Live Status Indicator -->
+    <div id="status-badge" class="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-full text-xs font-mono">
+      <span class="relative flex h-2.5 w-2.5">
+        <span id="ping-circle" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span id="dot-circle" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+      </span>
+      <span id="status-text" class="text-emerald-400 font-medium">Fetching Market Data...</span>
     </div>
   </header>
 
   <main class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
 
     <!-- Control Sidebar -->
-    <section class="lg:col-span-1 bg-slate-900/80 p-5 rounded-2xl border border-slate-800 backdrop-blur-md space-y-5">
-      <h2 class="text-lg font-bold text-slate-200 border-b border-slate-800 pb-2">Battery Parameters</h2>
+    <section class="lg:col-span-1 bg-slate-900/80 p-5 rounded-2xl border border-slate-800/80 backdrop-blur-md space-y-5">
+      <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider border-b border-slate-800 pb-2">Asset Parameters</h2>
 
       <div>
         <label class="flex justify-between text-xs font-semibold text-slate-300 mb-1">
-          <span>Power Capacity ($P_{max}$)</span>
+          <span>Nameplate Power ($P_{max}$)</span>
           <span id="lbl-pmax" class="text-cyan-400 font-mono">10 MW</span>
         </label>
         <input type="range" id="param-pmax" min="1" max="100" value="10" class="w-full accent-cyan-400 cursor-pointer">
@@ -57,41 +64,49 @@
         <input type="range" id="param-cycles" min="0.5" max="3.0" step="0.5" value="1.0" class="w-full accent-cyan-400 cursor-pointer">
       </div>
 
+      <div>
+        <label class="flex justify-between text-xs font-semibold text-slate-300 mb-1">
+          <span>Degradation Cost Penalty</span>
+          <span id="lbl-deg" class="text-cyan-400 font-mono">$5 / MWh</span>
+        </label>
+        <input type="range" id="param-deg" min="0" max="25" step="1" value="5" class="w-full accent-cyan-400 cursor-pointer">
+      </div>
+
       <div class="pt-2 border-t border-slate-800">
-        <label class="block text-xs font-semibold text-slate-300 mb-2">Wholesale Market Profile</label>
-        <select id="param-profile" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 font-medium focus:ring-2 focus:ring-cyan-400 outline-none">
-          <option value="ercot">ERCOT Houston (Summer Heatwave Spike)</option>
-          <option value="caiso">CAISO NP15 (Solar Duck Curve & Negative Prices)</option>
-          <option value="pjm">PJM West (Winter Cold Snap)</option>
+        <label class="block text-xs font-semibold text-slate-300 mb-2">Select ISO Market Hub</label>
+        <select id="param-profile" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 font-medium focus:ring-2 focus:ring-cyan-400 outline-none">
+          <option value="ercot">ERCOT Houston (Real-Time Price Spikes)</option>
+          <option value="caiso">CAISO NP15 (Solar Duck Curve & Negative LMP)</option>
+          <option value="pjm">PJM West (Winter Cold Snap Volatility)</option>
         </select>
       </div>
     </section>
 
-    <!-- Visualizer & Metric Cards -->
+    <!-- Main Output Dashboard -->
     <section class="lg:col-span-3 space-y-6">
 
-      <!-- Metrics Display -->
+      <!-- Financial Metric Cards -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
-          <p class="text-xs font-semibold text-slate-400">Net Daily Revenue</p>
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Net Daily Revenue</p>
           <p id="metric-revenue" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">$0.00</p>
         </div>
         <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
-          <p class="text-xs font-semibold text-slate-400">Energy Charged</p>
-          <p id="metric-charged" class="text-xl sm:text-2xl font-black text-rose-400 mt-1 font-mono">0.0 MWh</p>
-        </div>
-        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
-          <p class="text-xs font-semibold text-slate-400">Energy Discharged</p>
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Energy Throughput</p>
           <p id="metric-discharged" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0.0 MWh</p>
         </div>
         <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
-          <p class="text-xs font-semibold text-slate-400">Realized Spread</p>
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Realized Arbitrage</p>
           <p id="metric-spread" class="text-xl sm:text-2xl font-black text-cyan-400 mt-1 font-mono">$0.00 / MWh</p>
+        </div>
+        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-800">
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Asset Utilization</p>
+          <p id="metric-util" class="text-xl sm:text-2xl font-black text-indigo-400 mt-1 font-mono">0.0%</p>
         </div>
       </div>
 
-      <!-- Charts -->
-      <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800 space-y-4">
+      <!-- Chart Displays -->
+      <div class="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 space-y-4">
         <div id="chart-prices" class="w-full h-64"></div>
         <div id="chart-dispatch" class="w-full h-64"></div>
       </div>
@@ -100,14 +115,33 @@
   </main>
 
   <script>
-    const PROFILES = {
+    let marketData = {
+      updated_at: 'Static Fallback',
       ercot: [22, 19, 18, 17, 20, 35, 65, 80, 55, 40, 30, 25, 22, 20, 28, 45, 120, 350, 480, 210, 85, 45, 30, 25],
       caiso: [35, 30, 28, 25, 30, 45, 60, 40, 10, -5, -15, -10, 0, 5, 15, 35, 85, 160, 210, 140, 80, 55, 42, 38],
       pjm:   [45, 42, 40, 45, 65, 110, 155, 140, 95, 75, 65, 60, 58, 55, 62, 85, 130, 175, 190, 150, 105, 70, 55, 48]
     };
 
-    // Dynamic Programming BESS Dispatch Solver
-    function solveBESS(prices, pMax, eMax, rtePercent, maxCycles) {
+    async function loadPriceData() {
+      try {
+        const response = await fetch('./prices.json');
+        if (response.ok) {
+          marketData = await response.json();
+          document.getElementById('status-text').textContent = `Live Data (${marketData.updated_at})`;
+        } else {
+          throw new Error('Local file fetch failed');
+        }
+      } catch (err) {
+        document.getElementById('status-text').textContent = 'Simulated Data Mode';
+        document.getElementById('ping-circle').classList.replace('bg-emerald-400', 'bg-amber-400');
+        document.getElementById('dot-circle').classList.replace('bg-emerald-500', 'bg-amber-500');
+        document.getElementById('status-text').classList.replace('text-emerald-400', 'text-amber-400');
+      }
+      update();
+    }
+
+    // Dynamic Programming Dispatch Solver with Degradation Penalty
+    function solveBESS(prices, pMax, eMax, rtePercent, maxCycles, degPenalty) {
       const hours = 24;
       const steps = 100;
       const dE = eMax / steps;
@@ -143,7 +177,7 @@
             } else if (deltaE < 0) {
               const pGrid = -deltaE * eta;
               stepDischargeMWh = pGrid;
-              stepProfit = pGrid * price;
+              stepProfit = (pGrid * price) - (pGrid * degPenalty); // Applies degradation wear penalty
             }
 
             const newThroughput = throughput[t][s] + stepDischargeMWh;
@@ -192,24 +226,26 @@
       const eMax = parseFloat(document.getElementById('param-emax').value);
       const rte = parseFloat(document.getElementById('param-rte').value);
       const cycles = parseFloat(document.getElementById('param-cycles').value);
+      const deg = parseFloat(document.getElementById('param-deg').value);
       const profileKey = document.getElementById('param-profile').value;
-      const prices = PROFILES[profileKey];
+      const prices = marketData[profileKey] || marketData.ercot;
 
       document.getElementById('lbl-pmax').textContent = `${pMax} MW`;
       document.getElementById('lbl-emax').textContent = `${eMax} MWh`;
       document.getElementById('lbl-rte').textContent = `${rte}%`;
       document.getElementById('lbl-cycles').textContent = `${cycles.toFixed(1)}`;
+      document.getElementById('lbl-deg').textContent = `$${deg} / MWh`;
 
-      const res = solveBESS(prices, pMax, eMax, rte, cycles);
+      const res = solveBESS(prices, pMax, eMax, rte, cycles, deg);
 
-      const totalCharged = res.chargeMW.reduce((a, b) => a + b, 0);
       const totalDischarged = res.dischargeMW.reduce((a, b) => a + b, 0);
       const spread = totalDischarged > 0 ? (res.netRevenue / totalDischarged) : 0;
+      const utilization = ((totalDischarged / (pMax * 24)) * 100).toFixed(1);
 
       document.getElementById('metric-revenue').textContent = `$${res.netRevenue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-      document.getElementById('metric-charged').textContent = `${totalCharged.toFixed(1)} MWh`;
       document.getElementById('metric-discharged').textContent = `${totalDischarged.toFixed(1)} MWh`;
       document.getElementById('metric-spread').textContent = `$${spread.toFixed(2)} / MWh`;
+      document.getElementById('metric-util').textContent = `${utilization}%`;
 
       const hoursX = Array.from({length: 24}, (_, i) => `Hr ${i}`);
 
@@ -217,7 +253,7 @@
         { x: hoursX, y: prices, name: 'LMP Price ($/MWh)', type: 'scatter', mode: 'lines+markers', line: { color: '#f59e0b', width: 3 } },
         { x: hoursX, y: res.socPath.slice(0, 24), name: 'State of Charge (MWh)', type: 'scatter', mode: 'lines', yaxis: 'y2', line: { color: '#06b6d4', width: 2, dash: 'dot' } }
       ], {
-        title: { text: 'Wholesale Price Curve vs. State of Charge', font: { color: '#cbd5e1', size: 14 } },
+        title: { text: 'Wholesale Price Curve vs. Battery State of Charge', font: { color: '#cbd5e1', size: 14 } },
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
         margin: { t: 40, r: 40, l: 40, b: 40 },
         legend: { orientation: 'h', y: 1.15, font: { color: '#94a3b8' } },
@@ -230,7 +266,7 @@
         { x: hoursX, y: res.dischargeMW, name: 'Discharge Power (MW)', type: 'bar', marker: { color: '#10b981' } },
         { x: hoursX, y: res.chargeMW.map(v => -v), name: 'Charge Power (MW)', type: 'bar', marker: { color: '#f43f5e' } }
       ], {
-        title: { text: 'Battery Hourly Power Dispatch Schedule', font: { color: '#cbd5e1', size: 14 } },
+        title: { text: 'Hourly Dispatch Schedule (Charge vs. Discharge)', font: { color: '#cbd5e1', size: 14 } },
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
         margin: { t: 40, r: 40, l: 40, b: 40 },
         legend: { orientation: 'h', y: 1.15, font: { color: '#94a3b8' } },
@@ -239,11 +275,11 @@
       }, { responsive: true, displayModeBar: false });
     }
 
-    ['param-pmax', 'param-emax', 'param-rte', 'param-cycles', 'param-profile'].forEach(id => {
+    ['param-pmax', 'param-emax', 'param-rte', 'param-cycles', 'param-deg', 'param-profile'].forEach(id => {
       document.getElementById(id).addEventListener('input', update);
     });
 
-    update();
+    loadPriceData();
   </script>
 </body>
 </html>
