@@ -23,11 +23,9 @@ jobs:
           pip install gridstatus pandas
 
       - name: Fetch Live Market LMP Curves
-        env:
-          PJM_API_KEY: ${{ secrets.PJM_API_KEY }}
         run: |
           python -c "
-          import json, datetime, os
+          import json, datetime
           import gridstatus
           import pandas as pd
 
@@ -38,7 +36,7 @@ jobs:
               'updated_at': now,
               'ercot': [28, 25, 22, 20, 22, 35, 65, 80, 55, 40, 30, 25, 22, 20, 28, 45, 120, 350, 480, 210, 85, 45, 30, 25],
               'caiso': [35, 30, 28, 25, 30, 45, 60, 40, 10, -5, -15, -10, 0, 5, 15, 35, 85, 160, 210, 140, 80, 55, 42, 38],
-              'pjm':   [45, 42, 40, 45, 65, 110, 155, 140, 95, 75, 65, 60, 58, 55, 62, 85, 130, 175, 190, 150, 105, 70, 55, 48]
+              'nyiso': [40, 38, 35, 36, 45, 70, 95, 85, 60, 50, 45, 42, 40, 38, 42, 55, 90, 140, 160, 115, 80, 55, 48, 42]
           }
 
           # 1. Fetch CAISO Day-Ahead Hourly LMP
@@ -69,22 +67,19 @@ jobs:
           except Exception as e:
               print(f'⚠️ ERCOT fetch error, using fallback curve: {e}')
 
-          # 3. Fetch PJM Day-Ahead Hourly LMP
+          # 3. Fetch NYISO Day-Ahead Hourly LMP (Fully public, no API key required)
           try:
-              if os.getenv('PJM_API_KEY'):
-                  pjm = gridstatus.PJM()
-                  df_pjm = pjm.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
-                  if not df_pjm.empty:
-                      time_col = 'Time' if 'Time' in df_pjm.columns else 'Interval Start'
-                      price_col = 'LMP' if 'LMP' in df_pjm.columns else df_pjm.columns[-1]
-                      hourly = df_pjm.groupby(df_pjm[time_col].dt.hour)[price_col].mean().round(2).tolist()
-                      if len(hourly) == 24:
-                          data['pjm'] = hourly
-                          print('✅ PJM live data updated.')
-              else:
-                  print('⚠️ PJM_API_KEY secret not set. Skipping PJM live fetch and using fallback curve.')
+              nyiso = gridstatus.NYISO()
+              df_nyiso = nyiso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+              if not df_nyiso.empty:
+                  time_col = 'Time' if 'Time' in df_nyiso.columns else 'Interval Start'
+                  price_col = 'LMP' if 'LMP' in df_nyiso.columns else df_nyiso.columns[-1]
+                  hourly = df_nyiso.groupby(df_nyiso[time_col].dt.hour)[price_col].mean().round(2).tolist()
+                  if len(hourly) == 24:
+                      data['nyiso'] = hourly
+                      print('✅ NYISO live data updated.')
           except Exception as e:
-              print(f'⚠️ PJM fetch error, using fallback curve: {e}')
+              print(f'⚠️ NYISO fetch error, using fallback curve: {e}')
 
           with open('prices.json', 'w') as f:
               json.dump(data, f, indent=2)
