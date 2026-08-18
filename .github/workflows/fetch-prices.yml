@@ -1,9 +1,13 @@
-name: Fetch Live Grid Prices
+name: Fetch Live LMP Data
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Runs every 6 hours
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+    # Runs every 4 hours automatically
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   update-prices:
@@ -15,43 +19,62 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
-      - name: Install Grid Scraper Dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install gridstatus pandas
+          pip install gridstatus pandas requests
 
-      - name: Fetch Live Market LMP Curves
+      - name: Fetch LMP Data & Generate prices.json
         run: |
-          python -c "
-          import json, datetime
+          python - << 'EOF'
+          import json
+          import time
+          from datetime import datetime, timezone
+          import requests
           import gridstatus
-          import pandas as pd
 
-          now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
-
-          # Default fallback curves in case ISO endpoints rate-limit or fail
+          # Baseline fallback datasets
           data = {
-              'updated_at': now,
-              'ercot': [28, 25, 22, 20, 22, 35, 65, 80, 55, 40, 30, 25, 22, 20, 28, 45, 120, 350, 480, 210, 85, 45, 30, 25],
-              'caiso': [35, 30, 28, 25, 30, 45, 60, 40, 10, -5, -15, -10, 0, 5, 15, 35, 85, 160, 210, 140, 80, 55, 42, 38],
-              'nyiso': [40, 38, 35, 36, 45, 70, 95, 85, 60, 50, 45, 42, 40, 38, 42, 55, 90, 140, 160, 115, 80, 55, 48, 42]
+              "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+              "ercot": [28, 25, 22, 20, 22, 35, 65, 80, 55, 40, 30, 25, 22, 20, 28, 45, 120, 350, 480, 210, 85, 45, 30, 25],
+              "caiso": [35, 30, 28, 25, 30, 45, 60, 40, 10, -5, -15, -10, 0, 5, 15, 35, 85, 160, 210, 140, 80, 55, 42, 38],
+              "nyiso": [40, 38, 35, 36, 45, 70, 95, 85, 60, 50, 45, 42, 40, 38, 42, 55, 90, 140, 160, 115, 80, 55, 48, 42]
           }
 
-          # 1. Fetch CAISO Day-Ahead Hourly LMP with Retry & Headers
-          import time, requests
+          # Load existing prices.json as baseline if present
+          try:
+              with open('prices.json', 'r') as f:
+                  existing = json.load(f)
+                  data['ercot'] = existing.get('ercot', data['ercot'])
+                  data['caiso'] = existing.get('caiso', data['caiso'])
+                  data['nyiso'] = existing.get('nyiso', data['nyiso'])
+          except Exception:
+              pass
+
+          # 1. Fetch CAISO with Request Interception & Retry Logic
+          _orig_request = requests.Session.request
+          def _patched_request(self, method, url, **kwargs):
+              if 'caiso' in str(url).lower() or 'oasis' in str(url).lower():
+                  headers = kwargs.get('headers') or {}
+                  headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                  kwargs['headers'] = headers
+                  if kwargs.get('timeout') is None:
+                      kwargs['timeout'] = 15
+              return _orig_request(self, method, url, **kwargs)
+
+          requests.Session.request = _patched_request
+
           caiso_success = False
           for attempt in range(3):
               try:
-                  caiso = gridstatus.CAISO()
-                  # Inject User-Agent header to prevent CAISO OASIS datacenter blocking
-                  caiso.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-                  df_caiso = caiso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
-                  if not df_caiso.empty:
-                      time_col = 'Time' if 'Time' in df_caiso.columns else 'Interval Start'
-                      price_col = 'LMP' if 'LMP' in df_caiso.columns else df_caiso.columns[-1]
-                      hourly = df_caiso.groupby(df_caiso[time_col].dt.hour)[price_col].mean().round(2).tolist()
+                  iso = gridstatus.CAISO()
+                  df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+                  if not df.empty:
+                      time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
+                      price_col = 'LMP' if 'LMP' in df.columns else df.columns[-1]
+                      hourly = df.groupby(df[time_col].dt.hour)[price_col].mean().round(2).tolist()
                       if len(hourly) == 24:
                           data['caiso'] = hourly
                           print('✅ CAISO live data updated.')
@@ -59,47 +82,47 @@ jobs:
                           break
               except Exception as e:
                   print(f'⚠️ CAISO attempt {attempt + 1} failed: {e}')
-                  time.sleep(5)
-          
+                  time.sleep(3)
+
           if not caiso_success:
               print('⚠️ Using CAISO fallback curve after retries.')
 
-          # 2. Fetch ERCOT Day-Ahead Settlement Point Prices (SPP)
+          # 2. Fetch ERCOT Live Data
           try:
-              ercot = gridstatus.Ercot()
-              df_ercot = ercot.get_spp(date='today', market='DAY_AHEAD_HOURLY', location_type='Trading Hub')
-              if not df_ercot.empty:
-                  time_col = 'Time' if 'Time' in df_ercot.columns else 'Interval Start'
-                  price_col = 'SPP' if 'SPP' in df_ercot.columns else df_ercot.columns[-1]
-                  hourly = df_ercot.groupby(df_ercot[time_col].dt.hour)[price_col].mean().round(2).tolist()
+              iso = gridstatus.ERCOT()
+              df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+              if not df.empty:
+                  time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
+                  price_col = 'LMP' if 'LMP' in df.columns else df.columns[-1]
+                  hourly = df.groupby(df[time_col].dt.hour)[price_col].mean().round(2).tolist()
                   if len(hourly) == 24:
                       data['ercot'] = hourly
                       print('✅ ERCOT live data updated.')
           except Exception as e:
               print(f'⚠️ ERCOT fetch error, using fallback curve: {e}')
 
-          # 3. Fetch NYISO Day-Ahead Hourly LMP (Fully public, no API key required)
+          # 3. Fetch NYISO Live Data
           try:
-              nyiso = gridstatus.NYISO()
-              df_nyiso = nyiso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
-              if not df_nyiso.empty:
-                  time_col = 'Time' if 'Time' in df_nyiso.columns else 'Interval Start'
-                  price_col = 'LMP' if 'LMP' in df_nyiso.columns else df_nyiso.columns[-1]
-                  hourly = df_nyiso.groupby(df_nyiso[time_col].dt.hour)[price_col].mean().round(2).tolist()
+              iso = gridstatus.NYISO()
+              df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+              if not df.empty:
+                  time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
+                  price_col = 'LMP' if 'LMP' in df.columns else df.columns[-1]
+                  hourly = df.groupby(df[time_col].dt.hour)[price_col].mean().round(2).tolist()
                   if len(hourly) == 24:
                       data['nyiso'] = hourly
                       print('✅ NYISO live data updated.')
           except Exception as e:
               print(f'⚠️ NYISO fetch error, using fallback curve: {e}')
 
+          # Write out generated dataset
           with open('prices.json', 'w') as f:
               json.dump(data, f, indent=2)
-          "
+
+          EOF
 
       - name: Commit and Push Updated Data
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add prices.json
-          git commit -m "Auto-update live grid price profiles [$(date -u +'%Y-%m-%d %H:%M')]" || exit 0
-          git push
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update live market LMP data [skip ci]"
+          file_pattern: "prices.json"
