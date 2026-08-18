@@ -53,7 +53,7 @@ jobs:
           except Exception:
               pass
 
-          # 1. Fetch CAISO with Request Interception & Retry Logic
+          # Intercept requests for CAISO to attach custom headers & timeout
           _orig_request = requests.Session.request
           def _patched_request(self, method, url, **kwargs):
               if 'caiso' in str(url).lower() or 'oasis' in str(url).lower():
@@ -66,10 +66,11 @@ jobs:
 
           requests.Session.request = _patched_request
 
+          # 1. Fetch CAISO Day-Ahead Hourly LMP
           caiso_success = False
           for attempt in range(3):
               try:
-                  iso = gridstatus.CAISO()
+                  iso = gridstatus.Caiso()
                   df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
                   if not df.empty:
                       time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
@@ -87,9 +88,9 @@ jobs:
           if not caiso_success:
               print('⚠️ Using CAISO fallback curve after retries.')
 
-          # 2. Fetch ERCOT Live Data
+          # 2. Fetch ERCOT Day-Ahead Hourly LMP
           try:
-              iso = gridstatus.ERCOT()
+              iso = gridstatus.Ercot()
               df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
               if not df.empty:
                   time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
@@ -101,9 +102,9 @@ jobs:
           except Exception as e:
               print(f'⚠️ ERCOT fetch error, using fallback curve: {e}')
 
-          # 3. Fetch NYISO Live Data
+          # 3. Fetch NYISO Day-Ahead Hourly LMP
           try:
-              iso = gridstatus.NYISO()
+              iso = gridstatus.Nyiso()
               df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
               if not df.empty:
                   time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
@@ -115,7 +116,7 @@ jobs:
           except Exception as e:
               print(f'⚠️ NYISO fetch error, using fallback curve: {e}')
 
-          # Write out generated dataset
+          # Write out updated dataset
           with open('prices.json', 'w') as f:
               json.dump(data, f, indent=2)
 
