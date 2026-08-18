@@ -18,27 +18,12 @@
           fontFamily: {
             sans: ['"Plus Jakarta Sans"', 'sans-serif'],
             mono: ['"JetBrains Mono"', 'monospace'],
-          },
-          animation: {
-            'pulse-glow': 'pulseGlow 2s infinite alternate',
-            'card-pop': 'cardPop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-          },
-          keyframes: {
-            pulseGlow: {
-              '0%': { boxShadow: '0 0 15px -3px rgba(16, 185, 129, 0.3)' },
-              '100%': { boxShadow: '0 0 25px 2px rgba(16, 185, 129, 0.6)' },
-            },
-            cardPop: {
-              '0%': { transform: 'scale(0.96)' },
-              '100%': { transform: 'scale(1)' },
-            }
           }
         }
       }
     }
   </script>
   <style>
-    /* Custom scrollbar & interactive utility classes */
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     .glass-panel {
@@ -48,10 +33,10 @@
       border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .btn-chip {
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .btn-chip:active {
-      transform: scale(0.94);
+      transform: scale(0.95);
     }
   </style>
 </head>
@@ -81,7 +66,7 @@
 
   <main class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-    <!-- Interactive Control Panel (Mobile Friendly Top / Desktop Sidebar) -->
+    <!-- Interactive Control Panel -->
     <section class="lg:col-span-5 space-y-5">
       
       <!-- 1. Market Selection Cards -->
@@ -203,7 +188,7 @@
     <!-- Main Analytics & Charts Panel -->
     <section class="lg:col-span-7 space-y-6">
 
-      <!-- Financial Metric Cards with Micro-Animations -->
+      <!-- Financial Metric Cards -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         
         <div class="glass-panel p-4 rounded-2xl relative overflow-hidden group">
@@ -232,13 +217,13 @@
 
       </div>
 
-      <!-- Interactive Plotly Visualizers -->
+      <!-- Plotly Visualizers -->
       <div class="glass-panel p-4 sm:p-5 rounded-2xl space-y-4">
         <!-- Price Curve & State of Charge -->
-        <div id="chart-prices" class="w-full h-60 sm:h-72"></div>
+        <div id="chart-prices" class="w-full h-64 sm:h-72"></div>
         <hr class="border-slate-800/80">
         <!-- Dispatch Schedule Bar Chart -->
-        <div id="chart-dispatch" class="w-full h-60 sm:h-72"></div>
+        <div id="chart-dispatch" class="w-full h-64 sm:h-72"></div>
       </div>
 
     </section>
@@ -463,24 +448,48 @@
         { x: hoursX, y: prices, name: 'LMP ($/MWh)', type: 'scatter', mode: 'lines+markers', line: { color: '#f59e0b', width: 3, shape: 'spline' } },
         { x: hoursX, y: res.socPath.slice(0, 24), name: 'SOC (MWh)', type: 'scatter', mode: 'lines', yaxis: 'y2', line: { color: '#06b6d4', width: 2, dash: 'dot' } }
       ], {
-        title: { text: 'Wholesale LMP vs. State-of-Charge Profile', font: { color: '#cbd5e1', size: 13, family: 'Plus Jakarta Sans' } },
-        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-        margin: { t: 30, r: 40, l: 40, b: 30 },
-        legend: { orientation: 'h', y: 1.2, font: { color: '#94a3b8', size: 11 } },
+        title: { 
+          text: 'Wholesale LMP vs. State-of-Charge Profile', 
+          font: { color: '#cbd5e1', size: 13, family: 'Plus Jakarta Sans' },
+          x: 0,
+          xanchor: 'left'
+        },
+        paper_bgcolor: 'transparent', 
+        plot_bgcolor: 'transparent',
+        margin: { t: 40, r: 45, l: 45, b: 65 },
+        legend: { 
+          orientation: 'h', 
+          x: 0.5,
+          xanchor: 'center',
+          y: -0.28, 
+          font: { color: '#94a3b8', size: 11 } 
+        },
         xaxis: { gridcolor: 'rgba(30, 41, 59, 0.6)', tickfont: { color: '#64748b', size: 10 } },
         yaxis: { title: 'Price ($/MWh)', gridcolor: 'rgba(30, 41, 59, 0.6)', titlefont: { color: '#f59e0b', size: 11 }, tickfont: { color: '#f59e0b', size: 10 } },
         yaxis2: { title: 'SOC (MWh)', overlaying: 'y', side: 'right', titlefont: { color: '#06b6d4', size: 11 }, tickfont: { color: '#06b6d4', size: 10 } }
       }, { responsive: true, displayModeBar: false });
 
-      // Plot 2: Hourly Dispatch Profile
+      // Plot 2: Hourly Dispatch Schedule
       Plotly.react('chart-dispatch', [
         { x: hoursX, y: res.dischargeMW, name: 'Discharge Power (MW)', type: 'bar', marker: { color: '#10b981', cornerradius: 4 } },
         { x: hoursX, y: res.chargeMW.map(v => -v), name: 'Charge Power (MW)', type: 'bar', marker: { color: '#f43f5e', cornerradius: 4 } }
       ], {
-        title: { text: 'Hourly Battery Dispatch Schedule', font: { color: '#cbd5e1', size: 13, family: 'Plus Jakarta Sans' } },
-        paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-        margin: { t: 30, r: 40, l: 40, b: 30 },
-        legend: { orientation: 'h', y: 1.2, font: { color: '#94a3b8', size: 11 } },
+        title: { 
+          text: 'Hourly Battery Dispatch Schedule', 
+          font: { color: '#cbd5e1', size: 13, family: 'Plus Jakarta Sans' },
+          x: 0,
+          xanchor: 'left'
+        },
+        paper_bgcolor: 'transparent', 
+        plot_bgcolor: 'transparent',
+        margin: { t: 40, r: 45, l: 45, b: 65 },
+        legend: { 
+          orientation: 'h', 
+          x: 0.5,
+          xanchor: 'center',
+          y: -0.28, 
+          font: { color: '#94a3b8', size: 11 } 
+        },
         xaxis: { gridcolor: 'rgba(30, 41, 59, 0.6)', tickfont: { color: '#64748b', size: 10 } },
         yaxis: { title: 'Dispatch (MW)', gridcolor: 'rgba(30, 41, 59, 0.6)', tickfont: { color: '#94a3b8', size: 10 } }
       }, { responsive: true, displayModeBar: false });
