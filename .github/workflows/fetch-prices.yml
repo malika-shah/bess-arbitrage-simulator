@@ -30,10 +30,8 @@ jobs:
         run: |
           python - << 'EOF'
           import json
-          import time
           from datetime import datetime, timezone
           import pandas as pd
-          import requests
           import gridstatus
 
           # Baseline fallback datasets
@@ -44,67 +42,65 @@ jobs:
               "nyiso": [40, 38, 35, 36, 45, 70, 95, 85, 60, 50, 45, 42, 40, 38, 42, 55, 90, 140, 160, 115, 80, 55, 48, 42]
           }
 
-          # Preserve existing prices.json data as baseline if present
+          # Load existing prices.json as baseline if present
           try:
               with open('prices.json', 'r') as f:
                   existing = json.load(f)
                   for key in ['ercot', 'caiso', 'nyiso']:
-                      data[key] = existing.get(key, data[key])
+                      if key in existing and isinstance(existing[key], list) and len(existing[key]) == 24:
+                          data[key] = existing[key]
           except Exception:
               pass
-
-          # Intercept requests for CAISO to attach custom headers & timeout
-          _orig_request = requests.Session.request
-          def _patched_request(self, method, url, **kwargs):
-              if 'caiso' in str(url).lower() or 'oasis' in str(url).lower():
-                  headers = kwargs.get('headers') or {}
-                  headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                  kwargs['headers'] = headers
-                  kwargs.setdefault('timeout', 15)
-              return _orig_request(self, method, url, **kwargs)
-
-          requests.Session.request = _patched_request
 
           def process_iso_df(df, price_col):
               if df is None or df.empty:
                   return None
-              time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
+              time_col = 'Time' if 'Time' in df.columns else ('Interval Start' if 'Interval Start' in df.columns else df.columns[0])
+              if price_col not in df.columns:
+                  price_col = df.columns[-1]
+              
               df['Hour'] = pd.to_datetime(df[time_col]).dt.hour
               hourly = df.groupby('Hour')[price_col].mean().round(2).tolist()
-              return hourly if len(hourly) >= 23 else None
+              return hourly if len(hourly) == 24 else None
 
           # 1. Fetch CAISO Day-Ahead Hourly LMP (SP15 Trading Hub)
           try:
-              iso = gridstatus.get_iso('caiso')
+              iso = gridstatus.CAISO()
               df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY', locations=['TH_SP15_GEN-APND'])
               res = process_iso_df(df, 'LMP')
               if res:
                   data['caiso'] = res
                   print('✅ CAISO live data updated.')
+              else:
+                  print('⚠️ CAISO data returned incomplete hours, retaining baseline.')
           except Exception as e:
-              print(f'⚠️ CAISO fetch failed: {e}')
+              print(f'⚠️ CAISO fetch error: {e}')
 
           # 2. Fetch ERCOT Day-Ahead Hourly SPP (Trading Hubs)
           try:
-              iso = gridstatus.get_iso('ercot')
+              iso = gridstatus.Ercot()
               df = iso.get_spp(date='today', market='DAY_AHEAD_HOURLY', location_type='Trading Hub')
               res = process_iso_df(df, 'SPP')
               if res:
                   data['ercot'] = res
                   print('✅ ERCOT live data updated.')
+              else:
+                  print('⚠️ ERCOT data returned incomplete hours, retaining baseline.')
           except Exception as e:
-              print(f'⚠️ ERCOT fetch failed: {e}')
+              print(f'⚠️ ERCOT fetch error: {e}')
 
           # 3. Fetch NYISO Day-Ahead Hourly LMP (N.Y.C. Zone)
           try:
-              iso = gridstatus.get_iso('nyiso')
+              iso = gridstatus.NYISO()
               df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY', locations=['N.Y.C.'])
               res = process_iso_df(df, 'LMP')
               if res:
                   data['nyiso'] = res
                   print('✅ NYISO live data updated.')
+              else:
+                  print('⚠️ NYISO data returned incomplete hours, retaining baseline.')
           except Exception as e:
-              print(f'⚠️ NYISO fetch failed: {e}')
+              print(f'⚠️ NYISO fetch error: {e}')
 
           # Write out updated dataset
           with open('prices.json', 'w') as f:
