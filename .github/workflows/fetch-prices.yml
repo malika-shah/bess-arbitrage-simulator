@@ -30,95 +30,85 @@ jobs:
         run: |
           python - << 'EOF'
           import json
-          import time
-          from datetime import datetime, timezone
-          import requests
-          import gridstatus
+import time
+from datetime import datetime, timezone
+import pandas as pd
+import requests
+import gridstatus
 
-          # Baseline fallback datasets
-          data = {
-              "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-              "ercot": [28, 25, 22, 20, 22, 35, 65, 80, 55, 40, 30, 25, 22, 20, 28, 45, 120, 350, 480, 210, 85, 45, 30, 25],
-              "caiso": [35, 30, 28, 25, 30, 45, 60, 40, 10, -5, -15, -10, 0, 5, 15, 35, 85, 160, 210, 140, 80, 55, 42, 38],
-              "nyiso": [40, 38, 35, 36, 45, 70, 95, 85, 60, 50, 45, 42, 40, 38, 42, 55, 90, 140, 160, 115, 80, 55, 48, 42]
-          }
+# Fallback dataset baseline
+data = {
+    "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    "ercot": [28, 25, 22, 20, 22, 35, 65, 80, 55, 40, 30, 25, 22, 20, 28, 45, 120, 350, 480, 210, 85, 45, 30, 25],
+    "caiso": [35, 30, 28, 25, 30, 45, 60, 40, 10, -5, -15, -10, 0, 5, 15, 35, 85, 160, 210, 140, 80, 55, 42, 38],
+    "nyiso": [40, 38, 35, 36, 45, 70, 95, 85, 60, 50, 45, 42, 40, 38, 42, 55, 90, 140, 160, 115, 80, 55, 48, 42]
+}
 
-          # Load existing prices.json as baseline if present
-          try:
-              with open('prices.json', 'r') as f:
-                  existing = json.load(f)
-                  data['ercot'] = existing.get('ercot', data['ercot'])
-                  data['caiso'] = existing.get('caiso', data['caiso'])
-                  data['nyiso'] = existing.get('nyiso', data['nyiso'])
-          except Exception:
-              pass
+# Preserve existing JSON data if present
+try:
+    with open('prices.json', 'r') as f:
+        existing = json.load(f)
+        for key in ['ercot', 'caiso', 'nyiso']:
+            data[key] = existing.get(key, data[key])
+except Exception:
+    pass
 
-          # Intercept requests for CAISO to attach custom headers & timeout
-          _orig_request = requests.Session.request
-          def _patched_request(self, method, url, **kwargs):
-              if 'caiso' in str(url).lower() or 'oasis' in str(url).lower():
-                  headers = kwargs.get('headers') or {}
-                  headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                  kwargs['headers'] = headers
-                  if kwargs.get('timeout') is None:
-                      kwargs['timeout'] = 15
-              return _orig_request(self, method, url, **kwargs)
+# Patch requests for CAISO OASIS headers
+_orig_request = requests.Session.request
+def _patched_request(self, method, url, **kwargs):
+    if 'caiso' in str(url).lower() or 'oasis' in str(url).lower():
+        headers = kwargs.get('headers') or {}
+        headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        kwargs['headers'] = headers
+        kwargs.setdefault('timeout', 15)
+    return _orig_request(self, method, url, **kwargs)
 
-          requests.Session.request = _patched_request
+requests.Session.request = _patched_request
 
-          # 1. Fetch CAISO Day-Ahead Hourly LMP
-          caiso_success = False
-          for attempt in range(3):
-              try:
-                  iso = gridstatus.get_iso('caiso')
-                  df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
-                  if not df.empty:
-                      time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
-                      price_col = 'LMP' if 'LMP' in df.columns else df.columns[-1]
-                      hourly = df.groupby(df[time_col].dt.hour)[price_col].mean().round(2).tolist()
-                      if len(hourly) == 24:
-                          data['caiso'] = hourly
-                          print('✅ CAISO live data updated.')
-                          caiso_success = True
-                          break
-              except Exception as e:
-                  print(f'⚠️ CAISO attempt {attempt + 1} failed: {e}')
-                  time.sleep(3)
+def process_iso_df(df, price_col):
+    if df.empty:
+        return None
+    time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
+    # Sort and group by hour ending
+    df['Hour'] = df[time_col].dt.hour
+    hourly = df.groupby('Hour')[price_col].mean().round(2).tolist()
+    return hourly if len(hourly) >= 23 else None
 
-          if not caiso_success:
-              print('⚠️ Using CAISO fallback curve after retries.')
+# 1. CAISO (TH_SP15_GEN-APND Trading Hub)
+try:
+    iso = gridstatus.CAISO()
+    df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY', locations=['TH_SP15_GEN-APND'])
+    res = process_iso_df(df, 'LMP')
+    if res:
+        data['caiso'] = res
+        print('✅ CAISO live data updated.')
+except Exception as e:
+    print(f'⚠️ CAISO fetch failed: {e}')
 
-          # 2. Fetch ERCOT Day-Ahead Hourly SPP
-          try:
-              iso = gridstatus.get_iso('ercot')
-              df = iso.get_spp(date='today', market='DAY_AHEAD_HOURLY')
-              if not df.empty:
-                  time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
-                  price_col = 'SPP' if 'SPP' in df.columns else ('LMP' if 'LMP' in df.columns else df.columns[-1])
-                  hourly = df.groupby(df[time_col].dt.hour)[price_col].mean().round(2).tolist()
-                  if len(hourly) == 24:
-                      data['ercot'] = hourly
-                      print('✅ ERCOT live data updated.')
-          except Exception as e:
-              print(f'⚠️ ERCOT fetch error, using fallback curve: {e}')
+# 2. ERCOT (Hub Average)
+try:
+    iso = gridstatus.ERCOT()
+    df = iso.get_spp(date='today', market='DAY_AHEAD_HOURLY', location_type='Hub')
+    res = process_iso_df(df, 'SPP')
+    if res:
+        data['ercot'] = res
+        print('✅ ERCOT live data updated.')
+except Exception as e:
+    print(f'⚠️ ERCOT fetch failed: {e}')
 
-          # 3. Fetch NYISO Day-Ahead Hourly LMP
-          try:
-              iso = gridstatus.get_iso('nyiso')
-              df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
-              if not df.empty:
-                  time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
-                  price_col = 'LMP' if 'LMP' in df.columns else df.columns[-1]
-                  hourly = df.groupby(df[time_col].dt.hour)[price_col].mean().round(2).tolist()
-                  if len(hourly) == 24:
-                      data['nyiso'] = hourly
-                      print('✅ NYISO live data updated.')
-          except Exception as e:
-              print(f'⚠️ NYISO fetch error, using fallback curve: {e}')
+# 3. NYISO (N.Y.C. Zone / Hub)
+try:
+    iso = gridstatus.NYISO()
+    df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY', locations=['N.Y.C.'])
+    res = process_iso_df(df, 'LMP')
+    if res:
+        data['nyiso'] = res
+        print('✅ NYISO live data updated.')
+except Exception as e:
+    print(f'⚠️ NYISO fetch failed: {e}')
 
-          # Write out updated dataset
-          with open('prices.json', 'w') as f:
-              json.dump(data, f, indent=2)
+with open('prices.json', 'w') as f:
+    json.dump(data, f, indent=2)
 
           EOF
 
