@@ -23,15 +23,17 @@ jobs:
           pip install gridstatus pandas
 
       - name: Fetch Live Market LMP Curves
+        env:
+          PJM_API_KEY: ${{ secrets.PJM_API_KEY }}
         run: |
           python -c "
-          import json, datetime
+          import json, datetime, os
           import gridstatus
           import pandas as pd
 
           now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
 
-          # Default fallback curves in case ISO endpoints rate-limit
+          # Default fallback curves in case ISO endpoints rate-limit or fail
           data = {
               'updated_at': now,
               'ercot': [28, 25, 22, 20, 22, 35, 65, 80, 55, 40, 30, 25, 22, 20, 28, 45, 120, 350, 480, 210, 85, 45, 30, 25],
@@ -42,21 +44,25 @@ jobs:
           # 1. Fetch CAISO Day-Ahead Hourly LMP
           try:
               caiso = gridstatus.CAISO()
-              df_caiso = caiso.get_lmp_day_ahead_hourly(date='today')
-              if not df_caiso.empty and 'LMP' in df_caiso.columns:
-                  hourly = df_caiso.groupby(df_caiso['Time'].dt.hour)['LMP'].mean().round(2).tolist()
+              df_caiso = caiso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+              if not df_caiso.empty:
+                  time_col = 'Time' if 'Time' in df_caiso.columns else 'Interval Start'
+                  price_col = 'LMP' if 'LMP' in df_caiso.columns else df_caiso.columns[-1]
+                  hourly = df_caiso.groupby(df_caiso[time_col].dt.hour)[price_col].mean().round(2).tolist()
                   if len(hourly) == 24:
                       data['caiso'] = hourly
                       print('✅ CAISO live data updated.')
           except Exception as e:
               print(f'⚠️ CAISO fetch error, using fallback curve: {e}')
 
-          # 2. Fetch ERCOT Day-Ahead Hourly LMP
+          # 2. Fetch ERCOT Day-Ahead Settlement Point Prices (SPP)
           try:
               ercot = gridstatus.Ercot()
-              df_ercot = ercot.get_lmp_day_ahead_hourly(date='today')
-              if not df_ercot.empty and 'LMP' in df_ercot.columns:
-                  hourly = df_ercot.groupby(df_ercot['Time'].dt.hour)['LMP'].mean().round(2).tolist()
+              df_ercot = ercot.get_spp(date='today', market='DAY_AHEAD_HOURLY', location_type='Trading Hub')
+              if not df_ercot.empty:
+                  time_col = 'Time' if 'Time' in df_ercot.columns else 'Interval Start'
+                  price_col = 'SPP' if 'SPP' in df_ercot.columns else df_ercot.columns[-1]
+                  hourly = df_ercot.groupby(df_ercot[time_col].dt.hour)[price_col].mean().round(2).tolist()
                   if len(hourly) == 24:
                       data['ercot'] = hourly
                       print('✅ ERCOT live data updated.')
@@ -65,13 +71,18 @@ jobs:
 
           # 3. Fetch PJM Day-Ahead Hourly LMP
           try:
-              pjm = gridstatus.PJM()
-              df_pjm = pjm.get_lmp_day_ahead_hourly(date='today')
-              if not df_pjm.empty and 'LMP' in df_pjm.columns:
-                  hourly = df_pjm.groupby(df_pjm['Time'].dt.hour)['LMP'].mean().round(2).tolist()
-                  if len(hourly) == 24:
-                      data['pjm'] = hourly
-                      print('✅ PJM live data updated.')
+              if os.getenv('PJM_API_KEY'):
+                  pjm = gridstatus.PJM()
+                  df_pjm = pjm.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+                  if not df_pjm.empty:
+                      time_col = 'Time' if 'Time' in df_pjm.columns else 'Interval Start'
+                      price_col = 'LMP' if 'LMP' in df_pjm.columns else df_pjm.columns[-1]
+                      hourly = df_pjm.groupby(df_pjm[time_col].dt.hour)[price_col].mean().round(2).tolist()
+                      if len(hourly) == 24:
+                          data['pjm'] = hourly
+                          print('✅ PJM live data updated.')
+              else:
+                  print('⚠️ PJM_API_KEY secret not set. Skipping PJM live fetch and using fallback curve.')
           except Exception as e:
               print(f'⚠️ PJM fetch error, using fallback curve: {e}')
 
