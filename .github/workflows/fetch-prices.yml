@@ -70,7 +70,7 @@ jobs:
           caiso_success = False
           for attempt in range(3):
               try:
-                  iso = gridstatus.Caiso()
+                  iso = gridstatus.get_iso('caiso')
                   df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
                   if not df.empty:
                       time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
@@ -88,13 +88,13 @@ jobs:
           if not caiso_success:
               print('⚠️ Using CAISO fallback curve after retries.')
 
-          # 2. Fetch ERCOT Day-Ahead Hourly LMP
+          # 2. Fetch ERCOT Day-Ahead Hourly SPP
           try:
-              iso = gridstatus.Ercot()
-              df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+              iso = gridstatus.get_iso('ercot')
+              df = iso.get_spp(date='today', market='DAY_AHEAD_HOURLY')
               if not df.empty:
                   time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
-                  price_col = 'LMP' if 'LMP' in df.columns else df.columns[-1]
+                  price_col = 'SPP' if 'SPP' in df.columns else ('LMP' if 'LMP' in df.columns else df.columns[-1])
                   hourly = df.groupby(df[time_col].dt.hour)[price_col].mean().round(2).tolist()
                   if len(hourly) == 24:
                       data['ercot'] = hourly
@@ -104,7 +104,7 @@ jobs:
 
           # 3. Fetch NYISO Day-Ahead Hourly LMP
           try:
-              iso = gridstatus.Nyiso()
+              iso = gridstatus.get_iso('nyiso')
               df = iso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
               if not df.empty:
                   time_col = 'Time' if 'Time' in df.columns else 'Interval Start'
