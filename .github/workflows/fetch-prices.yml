@@ -39,19 +39,30 @@ jobs:
               'nyiso': [40, 38, 35, 36, 45, 70, 95, 85, 60, 50, 45, 42, 40, 38, 42, 55, 90, 140, 160, 115, 80, 55, 48, 42]
           }
 
-          # 1. Fetch CAISO Day-Ahead Hourly LMP
-          try:
-              caiso = gridstatus.CAISO()
-              df_caiso = caiso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
-              if not df_caiso.empty:
-                  time_col = 'Time' if 'Time' in df_caiso.columns else 'Interval Start'
-                  price_col = 'LMP' if 'LMP' in df_caiso.columns else df_caiso.columns[-1]
-                  hourly = df_caiso.groupby(df_caiso[time_col].dt.hour)[price_col].mean().round(2).tolist()
-                  if len(hourly) == 24:
-                      data['caiso'] = hourly
-                      print('✅ CAISO live data updated.')
-          except Exception as e:
-              print(f'⚠️ CAISO fetch error, using fallback curve: {e}')
+          # 1. Fetch CAISO Day-Ahead Hourly LMP with Retry & Headers
+          import time, requests
+          caiso_success = False
+          for attempt in range(3):
+              try:
+                  caiso = gridstatus.CAISO()
+                  # Inject User-Agent header to prevent CAISO OASIS datacenter blocking
+                  caiso.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+                  df_caiso = caiso.get_lmp(date='today', market='DAY_AHEAD_HOURLY')
+                  if not df_caiso.empty:
+                      time_col = 'Time' if 'Time' in df_caiso.columns else 'Interval Start'
+                      price_col = 'LMP' if 'LMP' in df_caiso.columns else df_caiso.columns[-1]
+                      hourly = df_caiso.groupby(df_caiso[time_col].dt.hour)[price_col].mean().round(2).tolist()
+                      if len(hourly) == 24:
+                          data['caiso'] = hourly
+                          print('✅ CAISO live data updated.')
+                          caiso_success = True
+                          break
+              except Exception as e:
+                  print(f'⚠️ CAISO attempt {attempt + 1} failed: {e}')
+                  time.sleep(5)
+          
+          if not caiso_success:
+              print('⚠️ Using CAISO fallback curve after retries.')
 
           # 2. Fetch ERCOT Day-Ahead Settlement Point Prices (SPP)
           try:
